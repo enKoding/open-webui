@@ -16,7 +16,7 @@ services:
       context: .
       dockerfile: Dockerfile
     volumes:
-      - ./TaxLight/volumes/open-webui:/app/backend/data
+      - ../volumes/open-webui:/app/backend/data
     ports:
       - ${OPEN_WEBUI_PORT-3000}:8080
     env_file:
