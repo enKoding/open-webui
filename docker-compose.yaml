@@ -1,12 +1,16 @@
 services:
   ollama:
     volumes:
-      - ollama:/root/.ollama
+      - ../volumes/ollama:/root/.ollama
     container_name: ollama
     pull_policy: always
     tty: true
     restart: unless-stopped
     image: ollama/ollama:${OLLAMA_DOCKER_TAG-latest}
+    networks:
+      - enkoding_openwebui
+    labels:
+      - "traefik.enable=false"
 
   open-webui:
     build:
@@ -17,18 +21,27 @@ services:
     image: ghcr.io/open-webui/open-webui:${WEBUI_DOCKER_TAG-main}
     container_name: open-webui
     volumes:
-      - open-webui:/app/backend/data
+      - ../volumes/open-webui:/app/backend/data
     depends_on:
       - ollama
-    ports:
-      - ${OPEN_WEBUI_PORT-3000}:8080
     environment:
       - 'OLLAMA_BASE_URL=http://ollama:11434'
       - 'WEBUI_SECRET_KEY='
     extra_hosts:
       - host.docker.internal:host-gateway
     restart: unless-stopped
+    networks:
+      - enkoding_openwebui
+      - enkoding_traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.openwebui.entrypoints=websecure"
+      - "traefik.http.routers.openwebui.rule=Host(`openwebui.enkoding.io`)"
+      - "traefik.http.routers.openwebui.tls.certresolver=mydns"
+      - "traefik.http.services.openwebui.loadbalancer.server.port=8080"
 
-volumes:
-  ollama: {}
-  open-webui: {}
+networks:
+  enkoding_traefik:
+    external: true
+  enkoding_openwebui:
+    internal: true
