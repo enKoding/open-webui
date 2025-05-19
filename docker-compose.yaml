@@ -2,7 +2,7 @@ services:
   ollama:
     volumes:
       - ../volumes/ollama:/root/.ollama
-    container_name: ollama
+    container_name: enkoding-openwebui-ollama
     pull_policy: always
     tty: true
     restart: unless-stopped
@@ -19,13 +19,13 @@ services:
         OLLAMA_BASE_URL: '/ollama'
       dockerfile: Dockerfile
     image: ghcr.io/open-webui/open-webui:${WEBUI_DOCKER_TAG-main}
-    container_name: open-webui
+    container_name: enkoding-openwebui
     volumes:
       - ../volumes/open-webui:/app/backend/data
     depends_on:
       - ollama
     environment:
-      - 'OLLAMA_BASE_URL=http://ollama:11434'
+      - 'OLLAMA_BASE_URL=http://enkoding-openwebui-ollama:11434'
       - 'WEBUI_SECRET_KEY='
     extra_hosts:
       - host.docker.internal:host-gateway
