@@ -2,6 +2,7 @@ import requests
 import logging
 import ftfy
 import sys
+import json
 
 from langchain_community.document_loaders import (
     AzureAIDocumentIntelligenceLoader,
@@ -13,7 +14,7 @@ from langchain_community.document_loaders import (
     TextLoader,
     UnstructuredEPubLoader,
     UnstructuredExcelLoader,
-    UnstructuredMarkdownLoader,
+    UnstructuredODTLoader,
     UnstructuredPowerPointLoader,
     UnstructuredRSTLoader,
     UnstructuredXMLLoader,
@@ -21,9 +22,11 @@ from langchain_community.document_loaders import (
 )
 from langchain_core.documents import Document
 
-
 from open_webui.retrieval.loaders.external_document import ExternalDocumentLoader
+
 from open_webui.retrieval.loaders.mistral import MistralLoader
+from open_webui.retrieval.loaders.datalab_marker import DatalabMarkerLoader
+
 
 from open_webui.env import SRC_LOG_LEVELS, GLOBAL_LOG_LEVEL
 
@@ -74,7 +77,6 @@ known_source_ext = [
     "swift",
     "vue",
     "svelte",
-    "msg",
     "ex",
     "exs",
     "erl",
@@ -145,16 +147,31 @@ class DoclingLoader:
                 )
             }
 
-            params = {
-                "image_export_mode": "placeholder",
-                "table_mode": "accurate",
-            }
+            params = {"image_export_mode": "placeholder", "table_mode": "accurate"}
 
             if self.params:
-                if self.params.get("do_picture_classification"):
-                    params["do_picture_classification"] = self.params.get(
-                        "do_picture_classification"
+                if self.params.get("do_picture_description"):
+                    params["do_picture_description"] = self.params.get(
+                        "do_picture_description"
                     )
+
+                    picture_description_mode = self.params.get(
+                        "picture_description_mode", ""
+                    ).lower()
+
+                    if picture_description_mode == "local" and self.params.get(
+                        "picture_description_local", {}
+                    ):
+                        params["picture_description_local"] = json.dumps(
+                            self.params.get("picture_description_local", {})
+                        )
+
+                    elif picture_description_mode == "api" and self.params.get(
+                        "picture_description_api", {}
+                    ):
+                        params["picture_description_api"] = json.dumps(
+                            self.params.get("picture_description_api", {})
+                        )
 
                 if self.params.get("ocr_engine") and self.params.get("ocr_lang"):
                     params["ocr_engine"] = self.params.get("ocr_engine")
@@ -209,7 +226,10 @@ class Loader:
 
     def _is_text_file(self, file_ext: str, file_content_type: str) -> bool:
         return file_ext in known_source_ext or (
-            file_content_type and file_content_type.find("text/") >= 0
+            file_content_type
+            and file_content_type.find("text/") >= 0
+            # Avoid text/html files being detected as text
+            and not file_content_type.find("html") >= 0
         )
 
     def _get_loader(self, filename: str, file_content_type: str, file_path: str):
@@ -226,7 +246,7 @@ class Loader:
                 api_key=self.kwargs.get("EXTERNAL_DOCUMENT_LOADER_API_KEY"),
                 mime_type=file_content_type,
             )
-        if self.engine == "tika" and self.kwargs.get("TIKA_SERVER_URL"):
+        elif self.engine == "tika" and self.kwargs.get("TIKA_SERVER_URL"):
             if self._is_text_file(file_ext, file_content_type):
                 loader = TextLoader(file_path, autodetect_encoding=True)
             else:
@@ -236,21 +256,67 @@ class Loader:
                     mime_type=file_content_type,
                     extract_images=self.kwargs.get("PDF_EXTRACT_IMAGES"),
                 )
+        elif (
+            self.engine == "datalab_marker"
+            and self.kwargs.get("DATALAB_MARKER_API_KEY")
+            and file_ext
+            in [
+                "pdf",
+                "xls",
+                "xlsx",
+                "ods",
+                "doc",
+                "docx",
+                "odt",
+                "ppt",
+                "pptx",
+                "odp",
+                "html",
+                "epub",
+                "png",
+                "jpeg",
+                "jpg",
+                "webp",
+                "gif",
+                "tiff",
+            ]
+        ):
+            loader = DatalabMarkerLoader(
+                file_path=file_path,
+                api_key=self.kwargs["DATALAB_MARKER_API_KEY"],
+                langs=self.kwargs.get("DATALAB_MARKER_LANGS"),
+                use_llm=self.kwargs.get("DATALAB_MARKER_USE_LLM", False),
+                skip_cache=self.kwargs.get("DATALAB_MARKER_SKIP_CACHE", False),
+                force_ocr=self.kwargs.get("DATALAB_MARKER_FORCE_OCR", False),
+                paginate=self.kwargs.get("DATALAB_MARKER_PAGINATE", False),
+                strip_existing_ocr=self.kwargs.get(
+                    "DATALAB_MARKER_STRIP_EXISTING_OCR", False
+                ),
+                disable_image_extraction=self.kwargs.get(
+                    "DATALAB_MARKER_DISABLE_IMAGE_EXTRACTION", False
+                ),
+                output_format=self.kwargs.get(
+                    "DATALAB_MARKER_OUTPUT_FORMAT", "markdown"
+                ),
+            )
         elif self.engine == "docling" and self.kwargs.get("DOCLING_SERVER_URL"):
             if self._is_text_file(file_ext, file_content_type):
                 loader = TextLoader(file_path, autodetect_encoding=True)
             else:
+                # Build params for DoclingLoader
+                params = self.kwargs.get("DOCLING_PARAMS", {})
+                if not isinstance(params, dict):
+                    try:
+                        params = json.loads(params)
+                    except json.JSONDecodeError:
+                        log.error("Invalid DOCLING_PARAMS format, expected JSON object")
+                        params = {}
+
                 loader = DoclingLoader(
                     url=self.kwargs.get("DOCLING_SERVER_URL"),
                     file_path=file_path,
                     mime_type=file_content_type,
-                    params={
-                        "ocr_engine": self.kwargs.get("DOCLING_OCR_ENGINE"),
-                        "ocr_lang": self.kwargs.get("DOCLING_OCR_LANG"),
-                        "do_picture_classification": self.kwargs.get(
-                            "DOCLING_DO_PICTURE_DESCRIPTION"
-                        ),
-                    },
+                    params=params,
                 )
         elif (
             self.engine == "document_intelligence"
@@ -326,6 +392,8 @@ class Loader:
                 loader = UnstructuredPowerPointLoader(file_path)
             elif file_ext == "msg":
                 loader = OutlookMessageLoader(file_path)
+            elif file_ext == "odt":
+                loader = UnstructuredODTLoader(file_path)
             elif self._is_text_file(file_ext, file_content_type):
                 loader = TextLoader(file_path, autodetect_encoding=True)
             else:

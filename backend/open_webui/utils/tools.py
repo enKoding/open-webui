@@ -101,9 +101,6 @@ def get_tools(
 
                     def make_tool_function(function_name, token, tool_server_data):
                         async def tool_function(**kwargs):
-                            print(
-                                f"Executing tool function {function_name} with params: {kwargs}"
-                            )
                             return await execute_tool_server(
                                 token=token,
                                 url=tool_server_data["url"],
@@ -160,7 +157,7 @@ def get_tools(
                 # TODO: Fix hack for OpenAI API
                 # Some times breaks OpenAI but others don't. Leaving the comment
                 for val in spec.get("parameters", {}).get("properties", {}).values():
-                    if val["type"] == "str":
+                    if val.get("type") == "str":
                         val["type"] = "string"
 
                 # Remove internal reserved parameters (e.g. __id__, __user__)
@@ -479,7 +476,7 @@ async def get_tool_server_data(token: str, url: str) -> Dict[str, Any]:
         "specs": convert_openapi_to_tool_payload(res),
     }
 
-    log.info("Fetched data:", data)
+    log.info(f"Fetched data: {data}")
     return data
 
 
@@ -490,8 +487,19 @@ async def get_tool_servers_data(
     server_entries = []
     for idx, server in enumerate(servers):
         if server.get("config", {}).get("enable"):
-            url_path = server.get("path", "openapi.json")
-            full_url = f"{server.get('url')}/{url_path}"
+            # Path (to OpenAPI spec URL) can be either a full URL or a path to append to the base URL
+            openapi_path = server.get("path", "openapi.json")
+            if "://" in openapi_path:
+                # If it contains "://", it's a full URL
+                full_url = openapi_path
+            else:
+                if not openapi_path.startswith("/"):
+                    # Ensure the path starts with a slash
+                    openapi_path = f"/{openapi_path}"
+
+                full_url = f"{server.get('url')}{openapi_path}"
+
+            info = server.get("info", {})
 
             auth_type = server.get("auth_type", "bearer")
             token = None
@@ -500,26 +508,37 @@ async def get_tool_servers_data(
                 token = server.get("key", "")
             elif auth_type == "session":
                 token = session_token
-            server_entries.append((idx, server, full_url, token))
+            server_entries.append((idx, server, full_url, info, token))
 
     # Create async tasks to fetch data
-    tasks = [get_tool_server_data(token, url) for (_, _, url, token) in server_entries]
+    tasks = [
+        get_tool_server_data(token, url) for (_, _, url, _, token) in server_entries
+    ]
 
     # Execute tasks concurrently
     responses = await asyncio.gather(*tasks, return_exceptions=True)
 
     # Build final results with index and server metadata
     results = []
-    for (idx, server, url, _), response in zip(server_entries, responses):
+    for (idx, server, url, info, _), response in zip(server_entries, responses):
         if isinstance(response, Exception):
             log.error(f"Failed to connect to {url} OpenAPI tool server")
             continue
+
+        openapi_data = response.get("openapi", {})
+
+        if info and isinstance(openapi_data, dict):
+            if "name" in info:
+                openapi_data["info"]["title"] = info.get("name", "Tool Server")
+
+            if "description" in info:
+                openapi_data["info"]["description"] = info.get("description", "")
 
         results.append(
             {
                 "idx": idx,
                 "url": server.get("url"),
-                "openapi": response.get("openapi"),
+                "openapi": openapi_data,
                 "info": response.get("info"),
                 "specs": response.get("specs"),
             }
@@ -622,5 +641,5 @@ async def execute_tool_server(
 
     except Exception as err:
         error = str(err)
-        log.exception("API Request Error:", error)
+        log.exception(f"API Request Error: {error}")
         return {"error": error}

@@ -46,6 +46,10 @@
 	let OpenAIUrl = '';
 	let OpenAIKey = '';
 
+	let AzureOpenAIUrl = '';
+	let AzureOpenAIKey = '';
+	let AzureOpenAIVersion = '';
+
 	let OllamaUrl = '';
 	let OllamaKey = '';
 
@@ -86,7 +90,10 @@
 			return;
 		}
 
-		if ((embeddingEngine === 'openai' && OpenAIKey === '') || OpenAIUrl === '') {
+		if (
+			embeddingEngine === 'azure_openai' &&
+			(AzureOpenAIKey === '' || AzureOpenAIUrl === '' || AzureOpenAIVersion === '')
+		) {
 			toast.error($i18n.t('OpenAI URL/Key required.'));
 			return;
 		}
@@ -105,6 +112,11 @@
 			openai_config: {
 				key: OpenAIKey,
 				url: OpenAIUrl
+			},
+			azure_openai_config: {
+				key: AzureOpenAIKey,
+				url: AzureOpenAIUrl,
+				version: AzureOpenAIVersion
 			}
 		}).catch(async (error) => {
 			toast.error(`${error}`);
@@ -151,6 +163,14 @@
 		}
 
 		if (
+			RAGConfig.CONTENT_EXTRACTION_ENGINE === 'datalab_marker' &&
+			!RAGConfig.DATALAB_MARKER_API_KEY
+		) {
+			toast.error($i18n.t('Datalab Marker API Key required.'));
+			return;
+		}
+
+		if (
 			RAGConfig.CONTENT_EXTRACTION_ENGINE === 'document_intelligence' &&
 			(RAGConfig.DOCUMENT_INTELLIGENCE_ENDPOINT === '' ||
 				RAGConfig.DOCUMENT_INTELLIGENCE_KEY === '')
@@ -170,11 +190,20 @@
 			await embeddingModelUpdateHandler();
 		}
 
-		RAGConfig.ALLOWED_FILE_EXTENSIONS = RAGConfig.ALLOWED_FILE_EXTENSIONS.split(',')
-			.map((ext) => ext.trim())
-			.filter((ext) => ext !== '');
-
-		const res = await updateRAGConfig(localStorage.token, RAGConfig);
+		const res = await updateRAGConfig(localStorage.token, {
+			...RAGConfig,
+			ALLOWED_FILE_EXTENSIONS: RAGConfig.ALLOWED_FILE_EXTENSIONS.split(',')
+				.map((ext) => ext.trim())
+				.filter((ext) => ext !== ''),
+			DATALAB_MARKER_LANGS: RAGConfig.DATALAB_MARKER_LANGS.split(',')
+				.map((code) => code.trim())
+				.filter((code) => code !== '')
+				.join(', '),
+			DOCLING_PICTURE_DESCRIPTION_LOCAL: JSON.parse(
+				RAGConfig.DOCLING_PICTURE_DESCRIPTION_LOCAL || '{}'
+			),
+			DOCLING_PICTURE_DESCRIPTION_API: JSON.parse(RAGConfig.DOCLING_PICTURE_DESCRIPTION_API || '{}')
+		});
 		dispatch('save');
 	};
 
@@ -191,6 +220,10 @@
 
 			OllamaKey = embeddingConfig.ollama_config.key;
 			OllamaUrl = embeddingConfig.ollama_config.url;
+
+			AzureOpenAIKey = embeddingConfig.azure_openai_config.key;
+			AzureOpenAIUrl = embeddingConfig.azure_openai_config.url;
+			AzureOpenAIVersion = embeddingConfig.azure_openai_config.version;
 		}
 	};
 	onMount(async () => {
@@ -198,6 +231,17 @@
 
 		const config = await getRAGConfig(localStorage.token);
 		config.ALLOWED_FILE_EXTENSIONS = (config?.ALLOWED_FILE_EXTENSIONS ?? []).join(', ');
+
+		config.DOCLING_PICTURE_DESCRIPTION_LOCAL = JSON.stringify(
+			config.DOCLING_PICTURE_DESCRIPTION_LOCAL ?? {},
+			null,
+			2
+		);
+		config.DOCLING_PICTURE_DESCRIPTION_API = JSON.stringify(
+			config.DOCLING_PICTURE_DESCRIPTION_API ?? {},
+			null,
+			2
+		);
 
 		RAGConfig = config;
 	});
@@ -273,6 +317,7 @@
 									<option value="external">{$i18n.t('External')}</option>
 									<option value="tika">{$i18n.t('Tika')}</option>
 									<option value="docling">{$i18n.t('Docling')}</option>
+									<option value="datalab_marker">{$i18n.t('Datalab Marker API')}</option>
 									<option value="document_intelligence">{$i18n.t('Document Intelligence')}</option>
 									<option value="mistral_ocr">{$i18n.t('Mistral OCR')}</option>
 								</select>
@@ -288,6 +333,138 @@
 									<div class="flex items-center relative">
 										<Switch bind:state={RAGConfig.PDF_EXTRACT_IMAGES} />
 									</div>
+								</div>
+							</div>
+						{:else if RAGConfig.CONTENT_EXTRACTION_ENGINE === 'datalab_marker'}
+							<div class="my-0.5 flex gap-2 pr-2">
+								<SensitiveInput
+									placeholder={$i18n.t('Enter Datalab Marker API Key')}
+									required={false}
+									bind:value={RAGConfig.DATALAB_MARKER_API_KEY}
+								/>
+							</div>
+
+							<div class="flex justify-between w-full mt-2">
+								<div class="text-xs font-medium">
+									{$i18n.t('Languages')}
+								</div>
+
+								<input
+									class="text-sm bg-transparent outline-hidden"
+									type="text"
+									bind:value={RAGConfig.DATALAB_MARKER_LANGS}
+									placeholder={$i18n.t('e.g.) en,fr,de')}
+								/>
+							</div>
+
+							<div class="flex justify-between w-full mt-2">
+								<div class="self-center text-xs font-medium">
+									<Tooltip
+										content={$i18n.t(
+											'Significantly improves accuracy by using an LLM to enhance tables, forms, inline math, and layout detection. Will increase latency. Defaults to True.'
+										)}
+										placement="top-start"
+									>
+										{$i18n.t('Use LLM')}
+									</Tooltip>
+								</div>
+								<div class="flex items-center">
+									<Switch bind:state={RAGConfig.DATALAB_MARKER_USE_LLM} />
+								</div>
+							</div>
+							<div class="flex justify-between w-full mt-2">
+								<div class="self-center text-xs font-medium">
+									<Tooltip
+										content={$i18n.t('Skip the cache and re-run the inference. Defaults to False.')}
+										placement="top-start"
+									>
+										{$i18n.t('Skip Cache')}
+									</Tooltip>
+								</div>
+								<div class="flex items-center">
+									<Switch bind:state={RAGConfig.DATALAB_MARKER_SKIP_CACHE} />
+								</div>
+							</div>
+							<div class="flex justify-between w-full mt-2">
+								<div class="self-center text-xs font-medium">
+									<Tooltip
+										content={$i18n.t(
+											'Force OCR on all pages of the PDF. This can lead to worse results if you have good text in your PDFs. Defaults to False.'
+										)}
+										placement="top-start"
+									>
+										{$i18n.t('Force OCR')}
+									</Tooltip>
+								</div>
+								<div class="flex items-center">
+									<Switch bind:state={RAGConfig.DATALAB_MARKER_FORCE_OCR} />
+								</div>
+							</div>
+							<div class="flex justify-between w-full mt-2">
+								<div class="self-center text-xs font-medium">
+									<Tooltip
+										content={$i18n.t(
+											'Whether to paginate the output. Each page will be separated by a horizontal rule and page number. Defaults to False.'
+										)}
+										placement="top-start"
+									>
+										{$i18n.t('Paginate')}
+									</Tooltip>
+								</div>
+								<div class="flex items-center">
+									<Switch bind:state={RAGConfig.DATALAB_MARKER_PAGINATE} />
+								</div>
+							</div>
+							<div class="flex justify-between w-full mt-2">
+								<div class="self-center text-xs font-medium">
+									<Tooltip
+										content={$i18n.t(
+											'Strip existing OCR text from the PDF and re-run OCR. Ignored if Force OCR is enabled. Defaults to False.'
+										)}
+										placement="top-start"
+									>
+										{$i18n.t('Strip Existing OCR')}
+									</Tooltip>
+								</div>
+								<div class="flex items-center">
+									<Switch bind:state={RAGConfig.DATALAB_MARKER_STRIP_EXISTING_OCR} />
+								</div>
+							</div>
+							<div class="flex justify-between w-full mt-2">
+								<div class="self-center text-xs font-medium">
+									<Tooltip
+										content={$i18n.t(
+											'Disable image extraction from the PDF. If Use LLM is enabled, images will be automatically captioned. Defaults to False.'
+										)}
+										placement="top-start"
+									>
+										{$i18n.t('Disable Image Extraction')}
+									</Tooltip>
+								</div>
+								<div class="flex items-center">
+									<Switch bind:state={RAGConfig.DATALAB_MARKER_DISABLE_IMAGE_EXTRACTION} />
+								</div>
+							</div>
+							<div class="flex justify-between w-full mt-2">
+								<div class="self-center text-xs font-medium">
+									<Tooltip
+										content={$i18n.t(
+											"The output format for the text. Can be 'json', 'markdown', or 'html'. Defaults to 'markdown'."
+										)}
+										placement="top-start"
+									>
+										{$i18n.t('Output Format')}
+									</Tooltip>
+								</div>
+								<div class="">
+									<select
+										class="dark:bg-gray-900 w-fit pr-8 rounded-sm px-2 text-xs bg-transparent outline-hidden text-right"
+										bind:value={RAGConfig.DATALAB_MARKER_OUTPUT_FORMAT}
+									>
+										<option value="markdown">{$i18n.t('Markdown')}</option>
+										<option value="json">{$i18n.t('JSON')}</option>
+										<option value="html">{$i18n.t('HTML')}</option>
+									</select>
 								</div>
 							</div>
 						{:else if RAGConfig.CONTENT_EXTRACTION_ENGINE === 'external'}
@@ -344,6 +521,71 @@
 									</div>
 								</div>
 							</div>
+							{#if RAGConfig.DOCLING_DO_PICTURE_DESCRIPTION}
+								<div class="flex justify-between w-full mt-2">
+									<div class="self-center text-xs font-medium">
+										<Tooltip content={''} placement="top-start">
+											{$i18n.t('Picture Description Mode')}
+										</Tooltip>
+									</div>
+									<div class="">
+										<select
+											class="dark:bg-gray-900 w-fit pr-8 rounded-sm px-2 text-xs bg-transparent outline-hidden text-right"
+											bind:value={RAGConfig.DOCLING_PICTURE_DESCRIPTION_MODE}
+										>
+											<option value="">{$i18n.t('Default')}</option>
+											<option value="local">{$i18n.t('Local')}</option>
+											<option value="api">{$i18n.t('API')}</option>
+										</select>
+									</div>
+								</div>
+
+								{#if RAGConfig.DOCLING_PICTURE_DESCRIPTION_MODE === 'local'}
+									<div class="flex flex-col gap-2 mt-2">
+										<div class=" flex flex-col w-full justify-between">
+											<div class=" mb-1 text-xs font-medium">
+												{$i18n.t('Picture Description Local Config')}
+											</div>
+											<div class="flex w-full items-center relative">
+												<Tooltip
+													content={$i18n.t(
+														'Options for running a local vision-language model in the picture description. The parameters refer to a model hosted on Hugging Face. This parameter is mutually exclusive with picture_description_api.'
+													)}
+													placement="top-start"
+													className="w-full"
+												>
+													<Textarea
+														bind:value={RAGConfig.DOCLING_PICTURE_DESCRIPTION_LOCAL}
+														placeholder={$i18n.t('Enter Config in JSON format')}
+													/>
+												</Tooltip>
+											</div>
+										</div>
+									</div>
+								{:else if RAGConfig.DOCLING_PICTURE_DESCRIPTION_MODE === 'api'}
+									<div class="flex flex-col gap-2 mt-2">
+										<div class=" flex flex-col w-full justify-between">
+											<div class=" mb-1 text-xs font-medium">
+												{$i18n.t('Picture Description API Config')}
+											</div>
+											<div class="flex w-full items-center relative">
+												<Tooltip
+													content={$i18n.t(
+														'API details for using a vision-language model in the picture description. This parameter is mutually exclusive with picture_description_local.'
+													)}
+													placement="top-start"
+													className="w-full"
+												>
+													<Textarea
+														bind:value={RAGConfig.DOCLING_PICTURE_DESCRIPTION_API}
+														placeholder={$i18n.t('Enter Config in JSON format')}
+													/>
+												</Tooltip>
+											</div>
+										</div>
+									</div>
+								{/if}
+							{/if}
 						{:else if RAGConfig.CONTENT_EXTRACTION_ENGINE === 'document_intelligence'}
 							<div class="my-0.5 flex gap-2 pr-2">
 								<input
@@ -397,6 +639,7 @@
 								>
 									<option value="">{$i18n.t('Default')} ({$i18n.t('Character')})</option>
 									<option value="token">{$i18n.t('Token')} ({$i18n.t('Tiktoken')})</option>
+									<option value="markdown_header">{$i18n.t('Markdown (Header)')}</option>
 								</select>
 							</div>
 						</div>
@@ -461,6 +704,8 @@
 												embeddingModel = '';
 											} else if (e.target.value === 'openai') {
 												embeddingModel = 'text-embedding-3-small';
+											} else if (e.target.value === 'azure_openai') {
+												embeddingModel = 'text-embedding-3-small';
 											} else if (e.target.value === '') {
 												embeddingModel = 'sentence-transformers/all-MiniLM-L6-v2';
 											}
@@ -469,6 +714,7 @@
 										<option value="">{$i18n.t('Default (SentenceTransformers)')}</option>
 										<option value="ollama">{$i18n.t('Ollama')}</option>
 										<option value="openai">{$i18n.t('OpenAI')}</option>
+										<option value="azure_openai">Azure OpenAI</option>
 									</select>
 								</div>
 							</div>
@@ -482,7 +728,11 @@
 										required
 									/>
 
-									<SensitiveInput placeholder={$i18n.t('API Key')} bind:value={OpenAIKey} />
+									<SensitiveInput
+										placeholder={$i18n.t('API Key')}
+										bind:value={OpenAIKey}
+										required={false}
+									/>
 								</div>
 							{:else if embeddingEngine === 'ollama'}
 								<div class="my-0.5 flex gap-2 pr-2">
@@ -498,6 +748,26 @@
 										bind:value={OllamaKey}
 										required={false}
 									/>
+								</div>
+							{:else if embeddingEngine === 'azure_openai'}
+								<div class="my-0.5 flex flex-col gap-2 pr-2 w-full">
+									<div class="flex gap-2">
+										<input
+											class="flex-1 w-full text-sm bg-transparent outline-hidden"
+											placeholder={$i18n.t('API Base URL')}
+											bind:value={AzureOpenAIUrl}
+											required
+										/>
+										<SensitiveInput placeholder={$i18n.t('API Key')} bind:value={AzureOpenAIKey} />
+									</div>
+									<div class="flex gap-2">
+										<input
+											class="flex-1 w-full text-sm bg-transparent outline-hidden"
+											placeholder="Version"
+											bind:value={AzureOpenAIVersion}
+											required
+										/>
+									</div>
 								</div>
 							{/if}
 						</div>
@@ -539,33 +809,7 @@
 											>
 												{#if updateEmbeddingModelLoading}
 													<div class="self-center">
-														<svg
-															class=" w-4 h-4"
-															viewBox="0 0 24 24"
-															fill="currentColor"
-															xmlns="http://www.w3.org/2000/svg"
-														>
-															<style>
-																.spinner_ajPY {
-																	transform-origin: center;
-																	animation: spinner_AtaB 0.75s infinite linear;
-																}
-
-																@keyframes spinner_AtaB {
-																	100% {
-																		transform: rotate(360deg);
-																	}
-																}
-															</style>
-															<path
-																d="M12,1A11,11,0,1,0,23,12,11,11,0,0,0,12,1Zm0,19a8,8,0,1,1,8-8A8,8,0,0,1,12,20Z"
-																opacity=".25"
-															/>
-															<path
-																d="M10.14,1.16a11,11,0,0,0-9,8.92A1.59,1.59,0,0,0,2.46,12,1.52,1.52,0,0,0,4.11,10.7a8,8,0,0,1,6.66-6.61A1.42,1.42,0,0,0,12,2.69h0A1.57,1.57,0,0,0,10.14,1.16Z"
-																class="spinner_ajPY"
-															/>
-														</svg>
+														<Spinner />
 													</div>
 												{:else}
 													<svg
@@ -595,7 +839,7 @@
 							</div>
 						</div>
 
-						{#if embeddingEngine === 'ollama' || embeddingEngine === 'openai'}
+						{#if embeddingEngine === 'ollama' || embeddingEngine === 'openai' || embeddingEngine === 'azure_openai'}
 							<div class="  mb-2.5 flex w-full justify-between">
 								<div class=" self-center text-xs font-medium">
 									{$i18n.t('Embedding Batch Size')}
@@ -641,12 +885,7 @@
 							<div class="  mb-2.5 flex w-full justify-between">
 								<div class=" self-center text-xs font-medium">{$i18n.t('Hybrid Search')}</div>
 								<div class="flex items-center relative">
-									<Switch
-										bind:state={RAGConfig.ENABLE_RAG_HYBRID_SEARCH}
-										on:change={() => {
-											submitHandler();
-										}}
-									/>
+									<Switch bind:state={RAGConfig.ENABLE_RAG_HYBRID_SEARCH} />
 								</div>
 							</div>
 
@@ -770,6 +1009,26 @@
 									</div>
 								</div>
 							{/if}
+
+							{#if RAGConfig.ENABLE_RAG_HYBRID_SEARCH === true}
+								<div class="mb-2.5 flex w-full justify-between">
+									<div class="self-center text-xs font-medium">
+										{$i18n.t('Weight of BM25 Retrieval')}
+									</div>
+									<div class="flex items-center relative">
+										<input
+											class="flex-1 w-full text-sm bg-transparent outline-hidden"
+											type="number"
+											step="0.01"
+											placeholder={$i18n.t('Enter BM25 Weight')}
+											bind:value={RAGConfig.HYBRID_BM25_WEIGHT}
+											autocomplete="off"
+											min="0.0"
+											max="1.0"
+										/>
+									</div>
+								</div>
+							{/if}
 						{/if}
 
 						<div class="  mb-2.5 flex flex-col w-full justify-between">
@@ -860,6 +1119,50 @@
 							</Tooltip>
 						</div>
 					</div>
+
+					<div class="  mb-2.5 flex w-full justify-between">
+						<div class=" self-center text-xs font-medium">{$i18n.t('Image Compression Width')}</div>
+						<div class="flex items-center relative">
+							<Tooltip
+								content={$i18n.t(
+									'The width in pixels to compress images to. Leave empty for no compression.'
+								)}
+								placement="top-start"
+							>
+								<input
+									class="flex-1 w-full text-sm bg-transparent outline-hidden"
+									type="number"
+									placeholder={$i18n.t('Leave empty for no compression')}
+									bind:value={RAGConfig.FILE_IMAGE_COMPRESSION_WIDTH}
+									autocomplete="off"
+									min="0"
+								/>
+							</Tooltip>
+						</div>
+					</div>
+
+					<div class="  mb-2.5 flex w-full justify-between">
+						<div class=" self-center text-xs font-medium">
+							{$i18n.t('Image Compression Height')}
+						</div>
+						<div class="flex items-center relative">
+							<Tooltip
+								content={$i18n.t(
+									'The height in pixels to compress images to. Leave empty for no compression.'
+								)}
+								placement="top-start"
+							>
+								<input
+									class="flex-1 w-full text-sm bg-transparent outline-hidden"
+									type="number"
+									placeholder={$i18n.t('Leave empty for no compression')}
+									bind:value={RAGConfig.FILE_IMAGE_COMPRESSION_HEIGHT}
+									autocomplete="off"
+									min="0"
+								/>
+							</Tooltip>
+						</div>
+					</div>
 				</div>
 
 				<div class="mb-3">
@@ -944,7 +1247,7 @@
 		</div>
 	{:else}
 		<div class="flex items-center justify-center h-full">
-			<Spinner />
+			<Spinner className="size-5" />
 		</div>
 	{/if}
 </form>

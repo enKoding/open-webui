@@ -1,6 +1,7 @@
 import logging
 import os
 import uuid
+import json
 from fnmatch import fnmatch
 from pathlib import Path
 from typing import Optional
@@ -10,6 +11,7 @@ from fastapi import (
     APIRouter,
     Depends,
     File,
+    Form,
     HTTPException,
     Request,
     UploadFile,
@@ -19,6 +21,7 @@ from fastapi import (
 from fastapi.responses import FileResponse, StreamingResponse
 from open_webui.constants import ERROR_MESSAGES
 from open_webui.env import SRC_LOG_LEVELS
+from open_webui.retrieval.vector.factory import VECTOR_DB_CLIENT
 
 from open_webui.models.users import Users
 from open_webui.models.files import (
@@ -84,19 +87,32 @@ def has_access_to_file(
 def upload_file(
     request: Request,
     file: UploadFile = File(...),
-    user=Depends(get_verified_user),
-    file_metadata: dict = None,
+    metadata: Optional[dict | str] = Form(None),
     process: bool = Query(True),
+    internal: bool = False,
+    user=Depends(get_verified_user),
 ):
     log.info(f"file.content_type: {file.content_type}")
 
-    file_metadata = file_metadata if file_metadata else {}
+    if isinstance(metadata, str):
+        try:
+            metadata = json.loads(metadata)
+        except json.JSONDecodeError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=ERROR_MESSAGES.DEFAULT("Invalid metadata format"),
+            )
+    file_metadata = metadata if metadata else {}
+
     try:
         unsanitized_filename = file.filename
         filename = os.path.basename(unsanitized_filename)
 
         file_extension = os.path.splitext(filename)[1]
-        if request.app.state.config.ALLOWED_FILE_EXTENSIONS:
+        # Remove the leading dot from the file extension
+        file_extension = file_extension[1:] if file_extension else ""
+
+        if (not internal) and request.app.state.config.ALLOWED_FILE_EXTENSIONS:
             request.app.state.config.ALLOWED_FILE_EXTENSIONS = [
                 ext for ext in request.app.state.config.ALLOWED_FILE_EXTENSIONS if ext
             ]
@@ -140,25 +156,30 @@ def upload_file(
         if process:
             try:
                 if file.content_type:
-                    if file.content_type.startswith("audio/") or file.content_type in {
-                        "video/webm"
-                    }:
+                    stt_supported_content_types = getattr(
+                        request.app.state.config, "STT_SUPPORTED_CONTENT_TYPES", []
+                    )
+
+                    if any(
+                        fnmatch(file.content_type, content_type)
+                        for content_type in (
+                            stt_supported_content_types
+                            if stt_supported_content_types
+                            and any(t.strip() for t in stt_supported_content_types)
+                            else ["audio/*", "video/webm"]
+                        )
+                    ):
                         file_path = Storage.get_file(file_path)
-                        result = transcribe(request, file_path)
+                        result = transcribe(request, file_path, file_metadata)
 
                         process_file(
                             request,
                             ProcessFileForm(file_id=id, content=result.get("text", "")),
                             user=user,
                         )
-                    elif file.content_type not in [
-                        "image/png",
-                        "image/jpeg",
-                        "image/gif",
-                        "video/mp4",
-                        "video/ogg",
-                        "video/quicktime",
-                    ]:
+                    elif (not file.content_type.startswith(("image/", "video/"))) or (
+                        request.app.state.config.CONTENT_EXTRACTION_ENGINE == "external"
+                    ):
                         process_file(request, ProcessFileForm(file_id=id), user=user)
                 else:
                     log.info(
@@ -189,7 +210,7 @@ def upload_file(
         log.exception(e)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=ERROR_MESSAGES.DEFAULT(e),
+            detail=ERROR_MESSAGES.DEFAULT("Error uploading file"),
         )
 
 
@@ -266,6 +287,7 @@ async def delete_all_files(user=Depends(get_admin_user)):
     if result:
         try:
             Storage.delete_all_files()
+            VECTOR_DB_CLIENT.reset()
         except Exception as e:
             log.exception(e)
             log.error("Error deleting files")
@@ -583,12 +605,12 @@ async def delete_file_by_id(id: str, user=Depends(get_verified_user)):
         or user.role == "admin"
         or has_access_to_file(id, "write", user)
     ):
-        # We should add Chroma cleanup here
 
         result = Files.delete_file_by_id(id)
         if result:
             try:
                 Storage.delete_file(file.path)
+                VECTOR_DB_CLIENT.delete(collection_name=f"file-{id}")
             except Exception as e:
                 log.exception(e)
                 log.error("Error deleting files")
