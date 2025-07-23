@@ -9,13 +9,14 @@
 	import Modal from '../common/Modal.svelte';
 	import Link from '../icons/Link.svelte';
 	import Collapsible from '../common/Collapsible.svelte';
+	import XMark from '$lib/components/icons/XMark.svelte';
 
 	export let show = false;
 	export let selectedToolIds = [];
 
 	let selectedTools = [];
 
-	$: selectedTools = $tools.filter((tool) => selectedToolIds.includes(tool.id));
+	$: selectedTools = ($tools ?? []).filter((tool) => selectedToolIds.includes(tool.id));
 
 	const i18n = getContext('i18n');
 </script>
@@ -30,16 +31,7 @@
 					show = false;
 				}}
 			>
-				<svg
-					xmlns="http://www.w3.org/2000/svg"
-					viewBox="0 0 20 20"
-					fill="currentColor"
-					class="w-5 h-5"
-				>
-					<path
-						d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"
-					/>
-				</svg>
+				<XMark className={'size-5'} />
 			</button>
 		</div>
 
@@ -82,10 +74,10 @@
 
 			<div class="px-5 pb-5 w-full flex flex-col justify-center">
 				<div class=" text-xs text-gray-600 dark:text-gray-300 mb-2">
-					Open WebUI can use tools provided by any OpenAPI server. <br /><a
+					{$i18n.t('Open WebUI can use tools provided by any OpenAPI server.')} <br /><a
 						class="underline"
 						href="https://github.com/open-webui/openapi-servers"
-						target="_blank">Learn more about OpenAPI tool servers.</a
+						target="_blank">{$i18n.t('Learn more about OpenAPI tool servers.')}</a
 					>
 				</div>
 				<div class=" text-sm dark:text-gray-300 mb-1">

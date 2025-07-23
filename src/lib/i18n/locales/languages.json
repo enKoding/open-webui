@@ -1,15 +1,15 @@
 [
 	{
-		"code": "ar",
-		"title": "Arabic (العربية)"
-	},
-	{
 		"code": "en-US",
 		"title": "English (US)"
 	},
 	{
 		"code": "en-GB",
 		"title": "English (GB)"
+	},
+	{
+		"code": "ar",
+		"title": "Arabic (العربية)"
 	},
 	{
 		"code": "ar-BH",
@@ -70,6 +70,10 @@
 	{
 		"code": "fr-FR",
 		"title": "French (France)"
+	},
+	{
+		"code": "gl-ES",
+		"title": "Galician (Galego)"
 	},
 	{
 		"code": "ka-GE",
@@ -180,7 +184,7 @@
 		"title": "Turkish (Türkçe)"
 	},
 	{
-		"code": "tk-TW",
+		"code": "tk-TM",
 		"title": "Turkmen (Türkmençe)"
 	},
 	{
@@ -190,6 +194,18 @@
 	{
 		"code": "ur-PK",
 		"title": "Urdu (اردو)"
+	},
+	{
+		"code": "ug-CN",
+		"title": "Uyghur (ئۇيغۇرچە)"
+	},
+	{
+		"code": "uz-Cyrl-UZ",
+		"title": "Uzbek (Cyrillic)"
+	},
+	{
+		"code": "uz-Latn-UZ",
+		"title": "Uzbek (Latin)"
 	},
 	{
 		"code": "vi-VN",
