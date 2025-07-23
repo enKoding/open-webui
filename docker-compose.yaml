@@ -1,13 +1,13 @@
 services:
 
-  # ollama:
-  #   volumes:
-  #     - ./TaxLight/volumes/ollama:/root/.ollama
-  #   container_name: ollama
-  #   pull_policy: always
-  #   tty: true
-  #   restart: unless-stopped
-  #   image: ollama/ollama:${OLLAMA_DOCKER_TAG-latest}
+#  ollama:
+#    volumes:
+#      - ../volumes/ollama:/root/.ollama
+#    container_name: ollama
+#    pull_policy: always
+#    tty: true
+#    restart: unless-stopped
+#    image: ollama/ollama:${OLLAMA_DOCKER_TAG-latest}
 
   taxlight_astrobot:
     container_name: taxlight_astrobot
@@ -17,16 +17,23 @@ services:
       dockerfile: Dockerfile
     volumes:
       - ../volumes/open-webui:/app/backend/data
-    ports:
-      - ${OPEN_WEBUI_PORT-3000}:8080
+    #ports:
+    #  - ${OPEN_WEBUI_PORT-3000}:8080
     env_file:
       - .env
     extra_hosts:
       - host.docker.internal:host-gateway
     restart: unless-stopped
-    # networks:
-    #   - taxlight
+    networks:
+      - traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.openwebui.loadbalancer.server.port=8080"
+      - "traefik.http.routers.openwebui.service=openwebui"
+      - "traefik.http.routers.openwebui.entrypoints=websecure"
+      - "traefik.http.routers.openwebui.rule=Host(`astrobot.enkoding.io`)"
+      - "traefik.http.routers.openwebui.tls.certresolver=mydns"
 
-# networks:
-#   taxlight:
-#     external: true
+networks:
+  traefik:
+    external: true
