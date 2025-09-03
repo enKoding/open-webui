@@ -33,6 +33,9 @@
 	export let save = false;
 	export let preview = false;
 
+	export let editCodeBlock = true;
+	export let topPadding = false;
+
 	export let onSave: Function = () => {};
 	export let onUpdate: Function = () => {};
 	export let onPreview: Function = () => {};
@@ -105,6 +108,8 @@
 				{attributes}
 				{save}
 				{preview}
+				edit={editCodeBlock}
+				stickyButtonsClassName={topPadding ? 'top-8' : 'top-0'}
 				onSave={(value) => {
 					onSave({
 						raw: token.raw,
@@ -196,6 +201,7 @@
 					id={`${id}-${tokenIdx}`}
 					tokens={token.tokens}
 					{done}
+					{editCodeBlock}
 					{onTaskClick}
 					{onSourceClick}
 				/>
@@ -229,6 +235,7 @@
 							tokens={item.tokens}
 							top={token.loose}
 							{done}
+							{editCodeBlock}
 							{onTaskClick}
 							{onSourceClick}
 						/>
@@ -262,6 +269,7 @@
 									tokens={item.tokens}
 									top={token.loose}
 									{done}
+									{editCodeBlock}
 									{onTaskClick}
 									{onSourceClick}
 								/>
@@ -272,6 +280,7 @@
 								tokens={item.tokens}
 								top={token.loose}
 								{done}
+								{editCodeBlock}
 								{onTaskClick}
 								{onSourceClick}
 							/>
@@ -294,6 +303,7 @@
 					tokens={marked.lexer(token.text)}
 					attributes={token?.attributes}
 					{done}
+					{editCodeBlock}
 					{onTaskClick}
 					{onSourceClick}
 				/>
